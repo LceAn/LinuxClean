@@ -4,11 +4,12 @@
 
 # ===============================
 # 功能：
-# 1. 清理旧的内核包和残留的配置文件
-# 2. 清理 /tmp 目录下的临时文件
-# 3. 清理 APT 缓存目录 /var/cache/apt/archives
-# 4. 清理用户缓存目录 ~/.cache
-# 5. 清理 systemd 日志 /var/log/journal
+# 1. 显示系统信息
+# 2. 清理旧的内核包和残留的配置文件
+# 3. 清理 /tmp 目录下的临时文件
+# 4. 清理 APT 缓存目录 /var/cache/apt/archives
+# 5. 清理用户缓存目录 ~/.cache
+# 6. 清理 systemd 日志 /var/log/journal
 # ===============================
 
 # 检查是否以 root 身份运行
@@ -18,10 +19,47 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=============================="
-echo "Linux 系统清理脚本"
+echo "        Linux 系统清理脚本       "
 echo "=============================="
 
-# 1. 清理旧的内核包和残留的配置文件
+# 1. 显示系统信息
+echo ""
+echo "系统信息："
+
+# 获取当前 Linux 发行版
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    distro=$NAME
+else
+    distro=$(uname -s)
+fi
+echo "操作系统：$distro"
+
+# 获取登录的用户名
+username=$(logname)
+echo "登录用户名：$username"
+
+# 获取 CPU 数量
+cpu_count=$(nproc)
+echo "CPU 数量：$cpu_count"
+
+# 获取内存大小和使用率
+total_mem=$(free -h | awk '/Mem:/ {print $2}')
+used_mem=$(free -h | awk '/Mem:/ {print $3}')
+mem_usage=$(free | awk '/Mem:/ {printf("%.2f"), $3/$2 * 100}')
+echo "内存大小：$total_mem"
+echo "已用内存：$used_mem ($mem_usage%)"
+
+# 获取硬盘大小和使用率
+disk_total=$(df -h / | awk 'NR==2 {print $2}')
+disk_used=$(df -h / | awk 'NR==2 {print $3}')
+disk_usage=$(df -h / | awk 'NR==2 {print $5}')
+echo "硬盘总容量：$disk_total"
+echo "已用硬盘：$disk_used ($disk_usage)"
+
+echo "=============================="
+
+# 2. 清理旧的内核包和残留的配置文件
 echo ""
 echo "步骤 1：清理旧的内核包和残留的配置文件"
 
@@ -76,7 +114,7 @@ echo "正在清理残留的配置文件..."
 dpkg -l | awk '/^rc/{print $2}' | xargs dpkg --purge
 echo "残留的配置文件已清理。"
 
-# 2. 清理 /tmp 目录下的临时文件
+# 3. 清理 /tmp 目录下的临时文件
 echo ""
 echo "步骤 2：清理 /tmp 目录下的临时文件"
 
@@ -90,7 +128,7 @@ else
     echo "已跳过 /tmp 目录的清理。"
 fi
 
-# 3. 清理 APT 缓存目录 /var/cache/apt/archives
+# 4. 清理 APT 缓存目录 /var/cache/apt/archives
 echo ""
 echo "步骤 3：清理 APT 缓存目录 /var/cache/apt/archives"
 
@@ -108,7 +146,7 @@ else
     echo "已跳过 APT 缓存的清理。"
 fi
 
-# 4. 清理用户缓存目录 ~/.cache
+# 5. 清理用户缓存目录 ~/.cache
 echo ""
 echo "步骤 4：清理用户缓存目录 ~/.cache"
 
@@ -129,7 +167,7 @@ else
     echo "已跳过用户缓存目录的清理。"
 fi
 
-# 5. 清理 systemd 日志 /var/log/journal
+# 6. 清理 systemd 日志 /var/log/journal
 echo ""
 echo "步骤 5：清理 systemd 日志 /var/log/journal"
 
