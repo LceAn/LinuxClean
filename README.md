@@ -202,7 +202,7 @@ systemd 日志已清理。
 
 如果您在使用过程中遇到任何问题，或有任何建议，请通过以下方式与我们联系：
 
-- **电子邮件**：your_email@example.com
+- **电子邮件**：admin@lcean.com
 - **GitHub Issues**：在 [GitHub 仓库的 Issues 页面](https://github.com/lcean/linuxclean/issues) 提交问题。
 
 ---
