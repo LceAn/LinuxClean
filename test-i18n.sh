@@ -1,65 +1,45 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-################################################################################
-# LinuxClean i18n 测试脚本
-# 用于测试语言检测和翻译功能
-################################################################################
+set -Eeuo pipefail
 
-# 颜色定义
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$SCRIPT_DIR/LinuxClean.sh"
 
-echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${YELLOW}LinuxClean i18n 测试${NC}"
-echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-echo ""
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+contains() {
+    local haystack="$1" needle="$2"
+    [[ "$haystack" == *"$needle"* ]] || fail "expected output to contain: $needle"
+}
 
-# 测试 1：检测当前系统语言
-echo -e "${GREEN}测试 1: 检测系统语言${NC}"
-echo "  LANG=$LANG"
-echo "  LC_ALL=$LC_ALL"
-echo "  LANGUAGE=$LANGUAGE"
+[[ -r "$SCRIPT" ]] || fail "LinuxClean.sh not found"
+bash -n "$SCRIPT" || fail "LinuxClean.sh has a syntax error"
 
-sys_lang="${LANG%%_*}"
-echo -e "  检测结果：${YELLOW}$sys_lang${NC}"
-echo ""
+english_help=$(LC_ALL=C LANG=C bash "$SCRIPT" --help)
+contains "$english_help" 'Usage'
+contains "$english_help" '--dry-run'
+contains "$english_help" '--max-items'
+contains "$english_help" 'quick, standard, full, or custom'
 
-# 测试 2：模拟中文环境
-echo -e "${GREEN}测试 2: 模拟中文环境${NC}"
-export LANG=zh_CN.UTF-8
-export LC_ALL=zh_CN.UTF-8
-sys_lang="${LANG%%_*}"
-echo -e "  设置后：${YELLOW}$sys_lang${NC}"
-echo -e "  预期：${GREEN}zh (中文)${NC}"
-echo ""
+chinese_help=$(LC_ALL=C LANG=C bash "$SCRIPT" --language zh --help)
+contains "$chinese_help" '用法'
+contains "$chinese_help" '模式：quick、standard、full、custom'
 
-# 测试 3：模拟英文环境
-echo -e "${GREEN}测试 3: 模拟英文环境${NC}"
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-sys_lang="${LANG%%_*}"
-echo -e "  设置后：${YELLOW}$sys_lang${NC}"
-echo -e "  预期：${GREEN}en (English)${NC}"
-echo ""
+version=$(LC_ALL=C LANG=C bash "$SCRIPT" --version)
+contains "$version" 'LinuxClean 3.0'
 
-# 测试 4：恢复原始设置
-echo -e "${GREEN}测试 4: 恢复原始设置${NC}"
-unset LANG
-unset LC_ALL
-unset LANGUAGE
-echo "  已恢复原始环境变量"
-echo ""
+if LC_ALL=C LANG=C bash "$SCRIPT" --definitely-invalid >/dev/null 2>&1; then
+    fail 'invalid options should return a non-zero status'
+fi
 
-echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}✓ 所有测试完成！${NC}"
-echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-echo ""
+if LC_ALL=C LANG=C bash "$SCRIPT" --max-items nope --mode quick --dry-run >/dev/null 2>&1; then
+    fail 'invalid --max-items values should return a non-zero status'
+fi
 
-# 使用说明
-echo -e "${YELLOW}使用方法：${NC}"
-echo "  1. 自动检测：直接运行 ./LinuxClean.sh"
-echo "  2. 强制中文：LANG=zh_CN.UTF-8 sudo ./LinuxClean.sh"
-echo "  3. 强制英文：LANG=en_US.UTF-8 sudo ./LinuxClean.sh"
-echo ""
+if ((EUID == 0)); then
+    preview=$(LC_ALL=C LANG=C bash "$SCRIPT" --mode quick --yes --dry-run --no-color --max-items 1)
+    contains "$preview" 'Cleanup plan:'
+    contains "$preview" 'Preview completed; no changes were made'
+    contains "$preview" 'Estimated reclaimable space:'
+fi
+
+printf 'PASS: syntax, i18n, options, validation, and root dry-run checks\n'

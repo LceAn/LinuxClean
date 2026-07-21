@@ -1,313 +1,85 @@
-# 🐧 LinuxClean
+# LinuxClean
 
-> 🔧 一键清理 Linux 系统垃圾，释放磁盘空间
+LinuxClean 是一个面向 Debian/Ubuntu 类 Linux 的保守型系统维护工具。它会先展示系统状态，默认在执行删除前确认，并通过命令行参数支持可审计的自动化任务。
 
-[![GitHub license](https://img.shields.io/github/license/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/blob/main/LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/issues)
-[![GitHub stars](https://img.shields.io/github/stars/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/network)
-![GitHub last commit](https://img.shields.io/github/last-commit/LceAn/LinuxClean)
-![Shell](https://img.shields.io/badge/Shell-100%25-brightgreen)
+## 主要能力
 
----
+- 快速、标准、完全、自定义四种清理模式。
+- `--dry-run` 演练模式：只展示候选文件和命令，不修改系统。
+- 候选文件按大小排序并显示预计释放量，默认只展示最大的 20 项，便于审计。
+- `/tmp` 和用户缓存按文件年龄清理（默认超过 7 天），避免误删新文件或活跃文件。
+- 通过 `apt-get clean` 清理 APT 缓存。
+- 使用 systemd journal 的 vacuum 功能并校验保留大小。
+- 识别旧内核时同时保护当前运行内核和最新备用内核，只处理版本化的 `linux-image-*` 包。
+- 默认处理 root 和普通本地用户，也可通过 `--user` 指定一个用户。
+- 中英文输出、自动语言检测、日志文件、进程锁和无色输出支持。
 
-**🌍 其他语言版本:** [English](README.md) | [中文](README_zh.md)
+## 环境要求
 
----
+- Bash 4+（推荐 Bash 5）
+- root 权限（`sudo` 或 root shell）
+- 可选命令会在运行时检测：`apt-get`、`dpkg-query`、`journalctl`、`getent`、`nproc`、`free`。
 
-## 📖 目录
-
-- [功能特性](#-功能特性)
-- [快速开始](#-快速开始)
-- [国际化支持](#-国际化支持)
-- [清理模式](#-清理模式)
-- [功能说明](#-功能说明)
-- [常见问题](#-常见问题)
-- [更新日志](#-更新日志)
-- [贡献](#-贡献)
-
----
-
-## ✨ 功能特性
-
-| 功能 | 描述 | 状态 |
-|------|------|------|
-| 🖥️ 系统信息检测 | 显示 OS、CPU、内存、硬盘使用情况 | ✅ |
-| 🗑️ 旧内核清理 | 安全移除旧内核，保留当前内核 | ✅ |
-| 📁 临时文件清理 | 清理 /tmp 目录 | ✅ |
-| 📦 APT 缓存清理 | 清理已下载的包文件 | ✅ |
-| 👤 用户缓存清理 | 清理 ~/.cache 目录 | ✅ |
-| 📋 系统日志清理 | 清理 systemd 日志，可指定保留大小 | ✅ |
-| 🎯 多种清理模式 | 快速/标准/完全/自定义 | ✅ |
-| 🎨 彩色输出 | 清晰的彩色终端输出 | ✅ |
-| ⚠️ 安全确认 | 每步操作前都会确认 | ✅ |
-| 🌍 国际化支持 | 自动检测系统语言，支持中英文 | ✅ |
-
----
-
-## 🚀 快速开始
-
-### 1️⃣ 下载脚本
-
-```bash
-# 方式 1：Git 克隆
-git clone https://github.com/LceAn/LinuxClean.git
-cd LinuxClean
-
-# 方式 2：直接下载
-wget https://raw.githubusercontent.com/LceAn/LinuxClean/main/LinuxClean.sh
-```
-
-### 2️⃣ 赋予执行权限
+## 使用方法
 
 ```bash
 chmod +x LinuxClean.sh
-```
 
-### 3️⃣ 运行脚本
-
-```bash
-# 使用 sudo 运行
+# 交互式菜单
 sudo ./LinuxClean.sh
 
-# 或切换到 root 用户后运行
-su -
-./LinuxClean.sh
+# 先做无损预览
+sudo ./LinuxClean.sh --mode standard --keep-days 14 --dry-run
 
-# 指定语言运行
-LANG=zh_CN.UTF-8 sudo ./LinuxClean.sh  # 中文
-LANG=en_US.UTF-8 sudo ./LinuxClean.sh  # English
+# 预览时仅展示最大的 10 个候选文件
+sudo ./LinuxClean.sh --mode full --dry-run --max-items 10
+
+# 自动任务（无需交互确认）
+sudo ./LinuxClean.sh --mode quick --yes --log-file /var/log/linuxclean.log
+
+# 完全清理，并将日志保留到 1G
+sudo ./LinuxClean.sh --mode full --journal-size 1G
 ```
 
----
+### 参数
 
-## 🌍 国际化支持
+| 参数 | 说明 |
+| --- | --- |
+| `-m, --mode MODE` | `quick`、`standard`、`full` 或 `custom` |
+| `-y, --yes` | 跳过确认（建议只用于已审阅的模式） |
+| `--dry-run` | 打印候选项和命令，不执行修改 |
+| `--keep-days N` | 只删除超过 N 天的文件，默认 `7` |
+| `--max-items N` | dry-run 最多展示 N 个文件候选，默认 `20`；`0` 表示不逐项展示 |
+| `--journal-size SIZE` | 日志目标，例如 `100M`、`1G` |
+| `--user USER` | 只清理指定用户的缓存 |
+| `--language en\|zh` | 覆盖系统语言检测 |
+| `--no-color` | 禁用 ANSI 颜色 |
+| `--log-file FILE` | 将输出同时写入日志文件 |
+| `-h, --help` / `-V, --version` | 显示帮助/版本 |
 
-脚本会自动检测您的系统语言并显示相应界面。
+当标准输入不是终端时必须指定 `--mode`，这样定时任务不会卡在交互提示上。
 
-**支持的语言：**
-- 🇺🇸 **English (en)** - 默认语言
-- 🇨🇳 **中文 (zh)** - 当 `LANG=zh_*` 时自动检测
+## 安全策略
 
-**手动选择语言：**
+LinuxClean 不使用无条件的递归删除：
+
+1. `/tmp` 和 `~/.cache` 只删除超过 `--keep-days` 的文件，然后删除空目录。
+2. APT 通过包管理器命令清理，不直接删除包文件。
+3. 永远保护当前运行内核和最新备用内核；元包和未带版本号的包不会成为候选。
+4. 默认每个破坏性模式都需要确认。自动化前请先检查 `--dry-run` 输出。
+5. 使用进程锁防止两个清理任务同时运行。
+
+工具不会删除文档、照片、应用数据、数据库或清理目标以外的任意路径。
+
+## 测试
 
 ```bash
-# 强制使用中文
-export LANG=zh_CN.UTF-8
-sudo ./LinuxClean.sh
-
-# 强制使用英文
-export LANG=en_US.UTF-8
-sudo ./LinuxClean.sh
-```
-
-**测试语言检测：**
-
-```bash
-# 运行 i18n 测试脚本
 ./test-i18n.sh
+bash -n LinuxClean.sh
 ```
 
----
+当前版本已在 Debian 11（`5.10.0-32-amd64`）上执行 quick、standard、full 三种 dry-run；可正确统计 `/tmp`、root 缓存、APT、journal 与内核保护状态，演练没有修改远端主机。
 
-## 🎯 清理模式
+## 许可证
 
-### 模式对比
-
-| 模式 | 清理内容 | 推荐场景 | 预计释放 |
-|------|---------|---------|---------|
-| **快速清理** | 临时文件 + APT 缓存 | 日常维护 | 100MB - 1GB |
-| **标准清理** | 快速清理 + 用户缓存 + 日志 | 月度清理 | 500MB - 5GB |
-| **完全清理** | 标准清理 + 旧内核 | 季度大扫除 | 1GB - 10GB+ |
-| **自定义清理** | 自选清理项目 | 特定需求 | 视选择而定 |
-
-### 模式说明
-
-#### 1) 快速清理
-- 清理 `/tmp` 临时文件
-- 清理 APT 缓存
-
-**适用场景：** 磁盘空间不足时的快速释放
-
-#### 2) 标准清理
-- 包含快速清理所有项目
-- 清理用户缓存 `~/.cache`
-- 清理 systemd 日志
-
-**适用场景：** 定期系统维护
-
-#### 3) 完全清理
-- 包含标准清理所有项目
-- 清理旧内核包
-- 清理残留配置文件
-
-**适用场景：** 系统升级后、季度大扫除
-
-#### 4) 自定义清理
-- 自由选择清理项目
-- 灵活配置
-
-**适用场景：** 特定需求的清理
-
----
-
-## 📋 功能说明
-
-### 系统信息检测
-
-脚本启动时自动显示：
-- 操作系统版本
-- 登录用户名
-- CPU 核心数
-- 内存使用情况
-- 硬盘使用情况
-- 系统运行时间
-
-### 旧内核清理
-
-**安全机制：**
-- ✅ 自动检测当前运行内核
-- ✅ 保留当前内核
-- ✅ 用户确认后才删除
-- ✅ 自动更新 GRUB
-- ✅ 清理残留配置
-
-**示例输出：**
-```
-步骤 1：清理旧的内核包和残留配置文件
-
-  当前内核：6.5.0-42-generic
-  已安装内核：3 个
-  将移除：2 个旧内核
-    - linux-image-6.5.0-35-generic
-    - linux-image-6.5.0-38-generic
-  是否确认移除？[y/N]: y
-```
-
-### 临时文件清理
-
-清理 `/tmp` 目录下的所有文件和空目录。
-
-### APT 缓存清理
-
-清理 `/var/cache/apt/archives` 目录，释放已下载包的缓存空间。
-
-### 用户缓存清理
-
-清理当前用户的 `~/.cache` 目录，包括：
-- 浏览器缓存
-- 应用程序缓存
-- 缩略图缓存
-
-### 系统日志清理
-
-使用 `journalctl --vacuum-size` 清理 systemd 日志：
-- 显示当前日志占用
-- 可指定保留大小（如 100M、1G）
-- 安全清理，不会删除所有日志
-
----
-
-## ❓ 常见问题
-
-### Q: 脚本安全吗？
-
-**A:** 非常安全！
-- ✅ 每步操作前都会提示确认
-- ✅ 不会删除当前运行的内核
-- ✅ 不会删除重要系统文件
-- ✅ 所有操作都可手动跳过
-
-### Q: 会删除我的个人文件吗？
-
-**A:** 不会！
-- 只清理系统缓存和临时文件
-- 不会触碰 `/home` 下的个人文件
-- 不会删除文档、图片等用户数据
-
-### Q: 多久运行一次？
-
-**A:** 建议频率：
-- 快速清理：每周
-- 标准清理：每月
-- 完全清理：每季度或系统升级后
-
-### Q: 清理后系统出问题了怎么办？
-
-**A:** 
-1. 至少保留一个旧内核（完全清理时会提示）
-2. 用户缓存清理后，应用首次启动可能稍慢（会重新生成缓存）
-3. 系统日志清理不会影响系统运行
-
-### Q: 支持哪些发行版？
-
-**A:** 
-- ✅ Ubuntu 及衍生版
-- ✅ Debian
-- ✅ Linux Mint
-- ✅ Kali Linux
-- ⚠️ 其他发行版（部分功能可能不适用）
-
-### Q: 如何取消操作？
-
-**A:** 
-- 每个步骤都可以选择 `N` 跳过
-- 随时按 `Ctrl+C` 终止脚本
-
----
-
-## 📝 更新日志
-
-### v2.1 - 2026-03-10
-- ✨ 新增国际化 (i18n) 支持
-- ✨ 自动检测系统语言（中文/英文）
-- ✨ 完整的双语言翻译
-- 🐛 优化文本输出格式
-- 📖 添加语言选择功能
-
-### v2.0 - 2026-03-03
-- ✨ 新增多种清理模式（快速/标准/完全/自定义）
-- ✨ 新增彩色终端输出
-- ✨ 新增系统运行时间显示
-- 🐛 优化内核检测逻辑
-- 🐛 改进错误处理
-- 📖 重写 README 文档
-
-### v1.1 - 2024-12-28
-- 📖 更新 README 文档
-- 🐛 修复小问题
-
-### v1.0 - 2024-10-04
-- ✨ 初始版本发布
-- ✨ 基础清理功能
-- ✨ 交互式操作
-
----
-
-## 🤝 贡献
-
-欢迎贡献！
-
-- 🐛 发现 Bug？[提交 Issue](https://github.com/LceAn/LinuxClean/issues)
-- 💡 有新功能？[提交 PR](https://github.com/LceAn/LinuxClean/pulls)
-- ⭐ 喜欢这个项目？给个 Star 吧！
-
----
-
-## 📄 许可证
-
-MIT License © 2024-2026 [LceAn](https://github.com/LceAn)
-
----
-
-## 🔗 相关链接
-
-- [GitHub 仓库](https://github.com/LceAn/LinuxClean)
-- [提交 Issue](https://github.com/LceAn/LinuxClean/issues)
-- [作者主页](https://github.com/LceAn)
-
----
-
-<p align="center">
-  <b>如果对你有帮助，请给个 ⭐ Star 吧！</b>
-</p>
+项目历史请参阅仓库中的许可证和更新日志。

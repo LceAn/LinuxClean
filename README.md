@@ -1,313 +1,87 @@
-# 🐧 LinuxClean
+# LinuxClean
 
-> 🔧 One-click Linux system cleaner to free up disk space
+LinuxClean is a conservative, scriptable maintenance tool for Debian/Ubuntu-like Linux systems. It reports the machine state, previews eligible files, asks before destructive actions, and supports unattended jobs through explicit command-line options.
 
-[![GitHub license](https://img.shields.io/github/license/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/blob/main/LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/issues)
-[![GitHub stars](https://img.shields.io/github/stars/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/LceAn/LinuxClean)](https://github.com/LceAn/LinuxClean/network)
-![GitHub last commit](https://img.shields.io/github/last-commit/LceAn/LinuxClean)
-![Shell](https://img.shields.io/badge/Shell-100%25-brightgreen)
+## Highlights
 
----
+- Quick, standard, full, and custom cleanup modes.
+- `--dry-run` preview with no filesystem or package changes.
+- Size-sorted candidates and reclaim estimates, capped at the 20 largest files by default for readable audits.
+- Age-based cleanup for `/tmp` and user caches (7 days by default), protecting fresh/active files.
+- APT cache cleanup through `apt-get clean`.
+- systemd journal vacuuming with a validated size target.
+- Old-kernel detection that protects both the running kernel and the newest fallback, and only targets versioned `linux-image-*` packages.
+- Handles root plus regular local users, or one selected user with `--user`.
+- English/Chinese output, automatic locale detection, optional log file, lock, color control, and useful exit codes.
 
-**🌍 Read this in other languages:** [English](README.md) | [中文](README_zh.md)
+## Requirements
 
----
+- Bash 4+ (Bash 5 recommended)
+- Root privileges (`sudo` or a root shell)
+- Optional tools are detected at runtime: `apt-get`, `dpkg-query`, `journalctl`, `getent`, `nproc`, and `free`.
 
-## 📖 Table of Contents
-
-- [Features](#-features)
-- [Quick Start](#-quick-start)
-- [Cleanup Modes](#-cleanup-modes)
-- [Function Details](#-function-details)
-- [Internationalization](#-internationalization)
-- [FAQ](#-faq)
-- [Changelog](#-changelog)
-- [Contributing](#-contributing)
-
----
-
-## ✨ Features
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| 🖥️ System Info | Display OS, CPU, memory, disk usage | ✅ |
-| 🗑️ Old Kernel Cleanup | Safely remove old kernels, keep current | ✅ |
-| 📁 Temp File Cleanup | Clean /tmp directory | ✅ |
-| 📦 APT Cache Cleanup | Clean downloaded package files | ✅ |
-| 👤 User Cache Cleanup | Clean ~/.cache directory | ✅ |
-| 📋 System Log Cleanup | Clean systemd logs with size limit | ✅ |
-| 🎯 Multiple Modes | Quick/Standard/Full/Custom | ✅ |
-| 🎨 Color Output | Clear colored terminal output | ✅ |
-| ⚠️ Safety Confirmations | Confirm before each operation | ✅ |
-| 🌍 i18n Support | Auto-detect language, EN/ZH support | ✅ |
-
----
-
-## 🚀 Quick Start
-
-### 1️⃣ Download Script
-
-```bash
-# Method 1: Git clone
-git clone https://github.com/LceAn/LinuxClean.git
-cd LinuxClean
-
-# Method 2: Direct download
-wget https://raw.githubusercontent.com/LceAn/LinuxClean/main/LinuxClean.sh
-```
-
-### 2️⃣ Make Executable
+## Usage
 
 ```bash
 chmod +x LinuxClean.sh
-```
 
-### 3️⃣ Run Script
-
-```bash
-# Run with sudo
+# Interactive menu
 sudo ./LinuxClean.sh
 
-# Or switch to root user
-su -
-./LinuxClean.sh
+# Safe preview first
+sudo ./LinuxClean.sh --mode standard --keep-days 14 --dry-run
 
-# Specify language
-LANG=zh_CN.UTF-8 sudo ./LinuxClean.sh  # Chinese
-LANG=en_US.UTF-8 sudo ./LinuxClean.sh  # English
+# Show only the 10 largest file candidates
+sudo ./LinuxClean.sh --mode full --dry-run --max-items 10
+
+# Unattended daily job
+sudo ./LinuxClean.sh --mode quick --yes --log-file /var/log/linuxclean.log
+
+# Full cleanup with a larger journal retention limit
+sudo ./LinuxClean.sh --mode full --journal-size 1G
 ```
 
----
+### Options
 
-## 🌍 Internationalization
+| Option | Meaning |
+| --- | --- |
+| `-m, --mode MODE` | `quick`, `standard`, `full`, or `custom` |
+| `-y, --yes` | Skip confirmations (use with a reviewed mode) |
+| `--dry-run` | Print candidates/commands without changing anything |
+| `--keep-days N` | Remove only files older than N days; default `7` |
+| `--max-items N` | Show at most N file candidates in dry-run; default `20`, `0` hides item details |
+| `--journal-size SIZE` | Journal target such as `100M` or `1G` |
+| `--user USER` | Limit cache cleanup to one local user |
+| `--language en|zh` | Override locale detection |
+| `--no-color` | Disable ANSI colors |
+| `--log-file FILE` | Tee output to a log file |
+| `-h, --help` / `-V, --version` | Show help/version |
 
-The script automatically detects your system language and displays the interface accordingly.
+If stdin is not a terminal, `--mode` is required. This prevents a scheduled job from hanging at an interactive prompt.
 
-**Supported Languages:**
-- 🇺🇸 **English (en)** - Default
-- 🇨🇳 **中文 (zh)** - Auto-detected when `LANG=zh_*`
+## Safety model
 
-**Manual Language Selection:**
+LinuxClean deliberately avoids broad recursive deletion:
+
+1. `/tmp` and `~/.cache` files are removed only when older than `--keep-days`; empty directories are removed afterwards.
+2. APT is cleaned through its package-manager command rather than deleting package files directly.
+3. The running kernel and newest fallback kernel are protected. Meta packages and unversioned package names are not candidates.
+4. Every destructive mode prompts by default. Review `--dry-run` output before using `--yes` in automation.
+5. A process lock prevents two cleanup jobs from running at the same time.
+
+The tool does not remove documents, photos, application data, databases, or arbitrary paths outside the cleanup targets.
+
+## Testing
+
+Run the local smoke tests:
 
 ```bash
-# Force Chinese
-export LANG=zh_CN.UTF-8
-sudo ./LinuxClean.sh
-
-# Force English
-export LANG=en_US.UTF-8
-sudo ./LinuxClean.sh
-```
-
-**Test Language Detection:**
-
-```bash
-# Run i18n test script
 ./test-i18n.sh
+bash -n LinuxClean.sh
 ```
 
----
+The script was also checked on a Debian 11 host (`5.10.0-32-amd64`) using quick, standard, and full dry-runs. It correctly reported `/tmp`, root caches, APT, journal estimates, and kernel protection without changing the host.
 
-## 🎯 Cleanup Modes
+## License
 
-### Mode Comparison
-
-| Mode | Cleanup Content | Recommended Scenario | Estimated Space |
-|------|----------------|---------------------|-----------------|
-| **Quick** | Temp Files + APT Cache | Daily maintenance | 100MB - 1GB |
-| **Standard** | Quick + User Cache + Logs | Monthly cleanup | 500MB - 5GB |
-| **Full** | Standard + Old Kernels | Quarterly deep clean | 1GB - 10GB+ |
-| **Custom** | Choose items | Specific needs | Varies |
-
-### Mode Details
-
-#### 1) Quick Clean
-- Clean `/tmp` temporary files
-- Clean APT cache
-
-**Best for:** Quick space recovery when disk is full
-
-#### 2) Standard Clean
-- Includes all Quick Clean items
-- Clean user cache `~/.cache`
-- Clean systemd logs
-
-**Best for:** Regular system maintenance
-
-#### 3) Full Clean
-- Includes all Standard Clean items
-- Clean old kernel packages
-- Clean residual config files
-
-**Best for:** After system upgrades, quarterly deep clean
-
-#### 4) Custom Clean
-- Choose cleanup items freely
-- Flexible configuration
-
-**Best for:** Specific cleanup requirements
-
----
-
-## 📋 Function Details
-
-### System Information Detection
-
-Auto-displays on startup:
-- OS version
-- Logged-in username
-- CPU cores
-- Memory usage
-- Disk usage
-- System uptime
-
-### Old Kernel Cleanup
-
-**Safety Mechanisms:**
-- ✅ Auto-detect current running kernel
-- ✅ Keep current kernel
-- ✅ User confirmation before deletion
-- ✅ Auto-update GRUB
-- ✅ Clean residual configs
-
-**Example Output:**
-```
-Step 1: Clean old kernel packages and residual configs
-
-  Current Kernel: 6.5.0-42-generic
-  Installed Kernels: 3
-  Will Remove: 2 old kernels
-    - linux-image-6.5.0-35-generic
-    - linux-image-6.5.0-38-generic
-  Confirm removal? [y/N]: y
-```
-
-### Temp File Cleanup
-
-Clean all files and empty directories in `/tmp`.
-
-### APT Cache Cleanup
-
-Clean `/var/cache/apt/archives` directory to free up package cache space.
-
-### User Cache Cleanup
-
-Clean current user's `~/.cache` directory, including:
-- Browser cache
-- Application cache
-- Thumbnail cache
-
-### System Log Cleanup
-
-Use `journalctl --vacuum-size` to clean systemd logs:
-- Show current log size
-- Specify retention size (e.g., 100M, 1G)
-- Safe cleanup, won't delete all logs
-
----
-
-## ❓ FAQ
-
-### Q: Is this script safe?
-
-**A:** Very safe!
-- ✅ Confirms before each operation
-- ✅ Won't delete currently running kernel
-- ✅ Won't delete important system files
-- ✅ All operations can be skipped manually
-
-### Q: Will it delete my personal files?
-
-**A:** No!
-- Only cleans system cache and temp files
-- Won't touch personal files in `/home`
-- Won't delete documents, photos, or user data
-
-### Q: How often should I run it?
-
-**A:** Recommended frequency:
-- Quick Clean: Weekly
-- Standard Clean: Monthly
-- Full Clean: Quarterly or after system upgrades
-
-### Q: What if system has issues after cleanup?
-
-**A:** 
-1. At least one old kernel is kept (prompted during full clean)
-2. User cache cleanup may slow first app launch (cache regenerates)
-3. System log cleanup doesn't affect system operation
-
-### Q: Which distributions are supported?
-
-**A:** 
-- ✅ Ubuntu and derivatives
-- ✅ Debian
-- ✅ Linux Mint
-- ✅ Kali Linux
-- ⚠️ Other distributions (some features may not apply)
-
-### Q: How to cancel an operation?
-
-**A:** 
-- Each step can be skipped with `N`
-- Press `Ctrl+C` anytime to terminate
-
----
-
-## 📝 Changelog
-
-### v2.1 - 2026-03-10
-- ✨ Added internationalization (i18n) support
-- ✨ Auto-detect system language (Chinese/English)
-- ✨ Complete bilingual translations
-- 🐛 Optimized text output format
-- 📖 Added language selection feature
-
-### v2.0 - 2026-03-03
-- ✨ Added multiple cleanup modes (Quick/Standard/Full/Custom)
-- ✨ Added colored terminal output
-- ✨ Added system uptime display
-- 🐛 Optimized kernel detection logic
-- 🐛 Improved error handling
-- 📖 Rewrote README documentation
-
-### v1.1 - 2024-12-28
-- 📖 Updated README documentation
-- 🐛 Fixed minor issues
-
-### v1.0 - 2024-10-04
-- ✨ Initial release
-- ✨ Basic cleanup features
-- ✨ Interactive operations
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome!
-
-- 🐛 Found a Bug? [Submit an Issue](https://github.com/LceAn/LinuxClean/issues)
-- 💡 Have a feature? [Submit a PR](https://github.com/LceAn/LinuxClean/pulls)
-- ⭐ Like this project? Give it a Star!
-
----
-
-## 📄 License
-
-MIT License © 2024-2026 [LceAn](https://github.com/LceAn)
-
----
-
-## 🔗 Related Links
-
-- [GitHub Repository](https://github.com/LceAn/LinuxClean)
-- [Submit Issue](https://github.com/LceAn/LinuxClean/issues)
-- [Author's Profile](https://github.com/LceAn)
-
----
-
-<p align="center">
-  <b>If this helped you, please give a ⭐ Star!</b>
-</p>
+See the repository license and changelog for project history.
