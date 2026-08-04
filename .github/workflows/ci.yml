@@ -1,0 +1,42 @@
+name: Shell CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shell-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Bash syntax
+        run: bash -n LinuxClean.sh test-i18n.sh tests/test-unit.sh
+
+      - name: Run ShellCheck
+        run: shellcheck -x LinuxClean.sh test-i18n.sh tests/test-unit.sh
+
+      - name: Run unit tests
+        run: bash tests/test-unit.sh
+
+      - name: Run CLI and i18n smoke tests
+        run: sudo bash test-i18n.sh
+
+      - name: Exercise full dry-run
+        run: |
+          sudo env LC_ALL=C LANG=C bash LinuxClean.sh \
+            --mode full \
+            --yes \
+            --dry-run \
+            --no-color \
+            --max-items 0 \
+            --keep-days 30 | tee /tmp/linuxclean-preview.log
+          grep -F 'Preview completed; no changes were made' /tmp/linuxclean-preview.log

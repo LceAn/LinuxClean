@@ -2,13 +2,13 @@
 
 ################################################################################
 # LinuxClean - safe Linux maintenance and cleanup utility
-# Version: 3.0
+# Version: 3.1
 ################################################################################
 
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="3.0"
+VERSION="3.1"
 SCRIPT_NAME="LinuxClean"
 KEEP_DAYS=7
 MAX_PREVIEW_ITEMS=20
@@ -19,7 +19,8 @@ DRY_RUN=0
 ASSUME_YES=0
 COLOR=1
 LOG_FILE=""
-LOCK_DIR="/run/lock/linuxclean.lock"
+LOCK_FILE="/run/lock/linuxclean.flock"
+LOCK_FD=""
 CURRENT_LANG="en"
 TOTAL_RELEASED=0
 ESTIMATED_RELEASED=0
@@ -65,6 +66,8 @@ declare -A TEXT_EN=(
     [mode_custom]='Custom clean (choose items)'
     [mode_exit]='Exit'
     [mode_prompt]='Enter choice [0-4]'
+    [custom_title]='Select cleanup items:'
+    [custom_prompt]='Enter choice [0-5]'
     [tmp_step]='Step 1: Clean old files in /tmp'
     [tmp_current]='Current size'
     [tmp_prompt]='Clean files older than %s days?'
@@ -105,10 +108,10 @@ declare -A TEXT_EN=(
     [kernel_cleaning]='Purging old kernel packages...'
     [kernel_done]='Old kernel cleanup completed'
     [kernel_none]='No removable old kernel packages found'
-    [residual_cleaning]='Purging residual package configurations...'
-    [residual_candidates]='Residual configurations: %s package(s)'
-    [residual_prompt]='Purge %s residual package configuration(s)?'
-    [residual_done]='Residual configurations purged: %s'
+    [residual_cleaning]='Purging residual kernel package configurations...'
+    [residual_candidates]='Residual kernel configurations: %s package(s)'
+    [residual_prompt]='Purge %s residual kernel configuration(s)?'
+    [residual_done]='Residual kernel configurations purged: %s'
     [complete_title]='System cleanup completed'
     [preview_title]='Preview completed; no changes were made'
     [complete_disk]='Disk usage after cleanup:'
@@ -128,12 +131,16 @@ declare -A TEXT_EN=(
     [error_usage]='Usage: sudo %s [options]'
     [error_unknown_option]='Unknown option: %s'
     [error_bad_mode]='Invalid mode: %s'
+    [error_bad_language]='Unsupported language: %s (use en or zh)'
     [error_bad_days]='--keep-days must be a non-negative integer'
     [error_bad_items]='--max-items must be a non-negative integer'
     [error_bad_size]='--journal-size must look like 100M, 1G, etc.'
     [error_noninteractive]='A mode is required when stdin is not a terminal (use --mode)'
+    [error_custom_tty]='Custom mode requires an interactive terminal'
     [error_log]='Unable to initialize log file: %s'
     [error_lock]='Unable to create the cleanup lock'
+    [error_lock_busy]='Another LinuxClean process is already running'
+    [error_user]='Local user does not exist: %s'
     [error_purge]='Some residual package configurations could not be purged'
     [help_title]='Usage'
     [help_options]='Options:'
@@ -173,6 +180,8 @@ declare -A TEXT_ZH=(
     [mode_custom]='自定义清理（逐项选择）'
     [mode_exit]='退出'
     [mode_prompt]='请输入选项 [0-4]'
+    [custom_title]='请选择清理项目：'
+    [custom_prompt]='请输入选项 [0-5]'
     [tmp_step]='步骤 1：清理 /tmp 中的旧文件'
     [tmp_current]='当前大小'
     [tmp_prompt]='清理超过 %s 天的文件？'
@@ -213,10 +222,10 @@ declare -A TEXT_ZH=(
     [kernel_cleaning]='正在清除旧内核包……'
     [kernel_done]='旧内核清理完成'
     [kernel_none]='没有找到可移除的旧内核包'
-    [residual_cleaning]='正在清理残留包配置……'
-    [residual_candidates]='残留配置：%s 个软件包'
-    [residual_prompt]='清理 %s 个残留软件包配置？'
-    [residual_done]='已清理残留配置：%s'
+    [residual_cleaning]='正在清理残留内核包配置……'
+    [residual_candidates]='残留内核配置：%s 个软件包'
+    [residual_prompt]='清理 %s 个残留内核配置？'
+    [residual_done]='已清理残留内核配置：%s'
     [complete_title]='系统清理完成'
     [preview_title]='预览完成，未对系统执行任何修改'
     [complete_disk]='清理后的磁盘使用情况：'
@@ -236,12 +245,16 @@ declare -A TEXT_ZH=(
     [error_usage]='用法：sudo %s [选项]'
     [error_unknown_option]='未知选项：%s'
     [error_bad_mode]='无效模式：%s'
+    [error_bad_language]='不支持的语言：%s（请使用 en 或 zh）'
     [error_bad_days]='--keep-days 必须是非负整数'
     [error_bad_items]='--max-items 必须是非负整数'
     [error_bad_size]='--journal-size 应类似 100M、1G 等格式'
     [error_noninteractive]='非交互模式必须指定 --mode'
+    [error_custom_tty]='自定义模式需要交互式终端'
     [error_log]='无法初始化日志文件：%s'
     [error_lock]='无法创建清理锁'
+    [error_lock_busy]='另一个 LinuxClean 进程正在运行'
+    [error_user]='本地用户不存在：%s'
     [error_purge]='部分残留包配置无法清理'
     [help_title]='用法'
     [help_options]='选项：'
@@ -255,6 +268,8 @@ msg() {
     local key="$1"; shift || true
     local text
     if [[ "$CURRENT_LANG" == zh ]]; then text="${TEXT_ZH[$key]:-${TEXT_EN[$key]:-[$key]}}"; else text="${TEXT_EN[$key]:-[$key]}"; fi
+    # Translation strings are trusted format templates defined above.
+    # shellcheck disable=SC2059
     if (($#)); then printf "$text\n" "$@"; else printf '%s\n' "$text"; fi
 }
 
@@ -292,7 +307,7 @@ usage() {
       --user USER          limit cache cleanup to one local user
       --language LANG      en or zh (also respects LC_ALL/LANG)
       --no-color           disable ANSI colors
-      --log-file FILE      append a timestamped log to FILE
+      --log-file FILE      append a plain-text timestamped log to FILE
   -h, --help               show this help
   -V, --version            show version
 EOF
@@ -312,12 +327,12 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 parse_args() {
     while (($#)); do
         case "$1" in
-            -m|--mode) (($# >= 2)) || die "$(msg error_unknown_option "$1")"; MODE="$2"; shift 2 ;;
+            -m|--mode) (($# >= 2)) || die "$(msg error_unknown_option "$1")"; MODE="${2,,}"; shift 2 ;;
             -y|--yes) ASSUME_YES=1; shift ;;
             --dry-run) DRY_RUN=1; shift ;;
             --keep-days) (($# >= 2)) || die "$(msg error_bad_days)"; KEEP_DAYS="$2"; shift 2 ;;
             --max-items) (($# >= 2)) || die "$(msg error_bad_items)"; MAX_PREVIEW_ITEMS="$2"; shift 2 ;;
-            --journal-size) (($# >= 2)) || die "$(msg error_bad_size)"; JOURNAL_LIMIT="$2"; shift 2 ;;
+            --journal-size) (($# >= 2)) || die "$(msg error_bad_size)"; JOURNAL_LIMIT="${2^^}"; shift 2 ;;
             --user) (($# >= 2)) || die "$(msg error_unknown_option "$1")"; TARGET_USER="$2"; shift 2 ;;
             --language) (($# >= 2)) || die "$(msg error_unknown_option "$1")"; CURRENT_LANG="${2,,}"; shift 2 ;;
             --no-color) COLOR=0; shift ;;
@@ -326,10 +341,13 @@ parse_args() {
             -V|--version) printf '%s %s\n' "$SCRIPT_NAME" "$VERSION"; exit 0 ;;
             --) shift; (($# == 0)) || die "$(msg error_unknown_option "$1")" ;;
             -*) die "$(msg error_unknown_option "$1")" ;;
-            *) [[ -z "$MODE" ]] && MODE="$1" || die "$(msg error_unknown_option "$1")"; shift ;;
+            *)
+                if [[ -z "$MODE" ]]; then MODE="${1,,}"; else die "$(msg error_unknown_option "$1")"; fi
+                shift
+                ;;
         esac
     done
-    [[ "$CURRENT_LANG" == en || "$CURRENT_LANG" == zh ]] || CURRENT_LANG=en
+    [[ "$CURRENT_LANG" == en || "$CURRENT_LANG" == zh ]] || die "$(msg error_bad_language "$CURRENT_LANG")"
     [[ "$KEEP_DAYS" =~ ^[0-9]+$ ]] || die "$(msg error_bad_days)"
     [[ "$MAX_PREVIEW_ITEMS" =~ ^[0-9]+$ ]] || die "$(msg error_bad_items)"
     [[ "$JOURNAL_LIMIT" =~ ^[0-9]+([KMGTP]B?|B)$ ]] || die "$(msg error_bad_size)"
@@ -364,14 +382,27 @@ size_to_bytes() {
     fi
 }
 scan_old_files() {
-    local path="$1" show_files="${2:-0}" file size quoted entry shown
+    local path="$1" show_files="${2:-0}" file size quoted entry shown index min_index min_size entry_size
     local -a entries=() top=()
     SCAN_COUNT=0; SCAN_BYTES=0
     while IFS= read -r -d '' file; do
         size=$(stat -c '%s' -- "$file" 2>/dev/null || printf '0')
         [[ "$size" =~ ^[0-9]+$ ]] || size=0
         SCAN_COUNT=$((SCAN_COUNT + 1)); SCAN_BYTES=$((SCAN_BYTES + size))
-        if ((show_files)); then printf -v quoted '%q' "$file"; entries+=("$size"$'\t'"$quoted"); fi
+        if ((show_files && MAX_PREVIEW_ITEMS > 0)); then
+            printf -v quoted '%q' "$file"
+            if ((${#entries[@]} < MAX_PREVIEW_ITEMS)); then
+                entries+=("$size"$'\t'"$quoted")
+            else
+                min_index=0
+                min_size="${entries[0]%%$'\t'*}"
+                for index in "${!entries[@]}"; do
+                    entry_size="${entries[index]%%$'\t'*}"
+                    if ((entry_size < min_size)); then min_index="$index"; min_size="$entry_size"; fi
+                done
+                if ((size > min_size)); then entries[min_index]="$size"$'\t'"$quoted"; fi
+            fi
+        fi
     done < <(find "$path" -xdev -mindepth 1 -type f -mtime +"$KEEP_DAYS" -print0 2>/dev/null)
     if ((show_files && MAX_PREVIEW_ITEMS > 0 && ${#entries[@]} > 0)); then
         mapfile -t top < <(printf '%s\n' "${entries[@]}" | sort -nr -k1,1 | sed -n "1,${MAX_PREVIEW_ITEMS}p")
@@ -397,15 +428,22 @@ run_cmd() {
 
 setup_logging() {
     [[ -z "$LOG_FILE" ]] && return
+    COLOR=0
     mkdir -p "$(dirname -- "$LOG_FILE")" 2>/dev/null || die "$(msg error_log "$LOG_FILE")"
     { printf '\n[%s] %s %s\n' "$(date -Is)" "$SCRIPT_NAME" "$VERSION"; } >>"$LOG_FILE" || die "$(msg error_log "$LOG_FILE")"
     exec > >(tee -a "$LOG_FILE") 2>&1
 }
 setup_lock() {
     ((DRY_RUN)) && return
-    mkdir -p "$(dirname -- "$LOCK_DIR")" 2>/dev/null || die "$(msg error_lock)"
-    if ! mkdir "$LOCK_DIR" 2>/dev/null; then die 'another LinuxClean process is already running'; fi
-    trap 'rmdir -- "$LOCK_DIR" 2>/dev/null || true' EXIT
+    mkdir -p "$(dirname -- "$LOCK_FILE")" 2>/dev/null || die "$(msg error_lock)"
+    if command_exists flock; then
+        exec {LOCK_FD}>"$LOCK_FILE" || die "$(msg error_lock)"
+        flock -n "$LOCK_FD" || die "$(msg error_lock_busy)"
+    else
+        local lock_dir="${LOCK_FILE}.d"
+        mkdir "$lock_dir" 2>/dev/null || die "$(msg error_lock_busy)"
+        trap 'rmdir -- "${LOCK_FILE}.d" 2>/dev/null || true' EXIT
+    fi
 }
 
 show_banner() {
@@ -417,6 +455,7 @@ show_banner() {
 show_system_info() {
     local distro username cpu total_mem used_mem mem_percent disk_total disk_used disk_percent uptime_info
     if [[ -r /etc/os-release ]]; then
+        # shellcheck disable=SC1091
         distro=$( . /etc/os-release; printf '%s' "${PRETTY_NAME:-${NAME:-Linux}}" )
     else
         distro=$(uname -s)
@@ -463,7 +502,7 @@ clean_tmp() {
     if ! confirm "$(msg tmp_prompt "$KEEP_DAYS")"; then skip "$(msg tmp_skipped)"; return; fi
     info "  $(msg tmp_cleaning)"
     find /tmp -xdev -mindepth 1 -type f -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
-    find /tmp -xdev -depth -mindepth 1 -type d -empty -delete 2>/dev/null || true
+    find /tmp -xdev -depth -mindepth 1 -type d -empty -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
     after=$(bytes_for /tmp); removed=$((before > after ? before-after : 0)); ok "$(msg tmp_done "$(human_bytes "$removed")")"; TOTAL_RELEASED=$((TOTAL_RELEASED + removed))
 }
 
@@ -481,17 +520,21 @@ clean_apt_cache() {
 }
 
 user_database() {
-    if command_exists getent; then
-        getent passwd
-    elif [[ -r /etc/passwd ]]; then
+    if [[ -r /etc/passwd ]]; then
         cat /etc/passwd
+    elif command_exists getent; then
+        getent passwd
     fi
+}
+validate_target_user() {
+    [[ -z "$TARGET_USER" ]] && return 0
+    user_database | awk -F: -v user="$TARGET_USER" '$1 == user {found=1} END {exit !found}' || die "$(msg error_user "$TARGET_USER")"
 }
 user_homes() {
     if [[ -n "$TARGET_USER" ]]; then
         user_database | awk -F: -v user="$TARGET_USER" '$1 == user && $6 != "" {print $6}'
     else
-        user_database | awk -F: '($3 == 0 || ($3 >= 1000 && $3 < 60000)) && $6 ~ /^\// {print $6}'
+        user_database | awk -F: '($3 == 0 || ($3 >= 1000 && $3 < 60000)) && $6 ~ /^\// {print $6}' | sort -u
     fi
 }
 clean_user_cache() {
@@ -514,7 +557,7 @@ clean_user_cache() {
     for home in "${homes[@]}"; do
         cache="$home/.cache"; [[ -d "$cache" ]] || continue
         find "$cache" -xdev -mindepth 1 -type f -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
-        find "$cache" -xdev -depth -mindepth 1 -type d -empty -delete 2>/dev/null || true
+        find "$cache" -xdev -depth -mindepth 1 -type d -empty -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
     done
     after=0
     for home in "${homes[@]}"; do
@@ -542,13 +585,34 @@ clean_journal() {
     new_raw=$(journalctl --disk-usage 2>/dev/null | tail -1); new_bytes=$(size_to_bytes "${new_raw:-0}"); removed=$((current_bytes > new_bytes ? current_bytes-new_bytes : 0)); TOTAL_RELEASED=$((TOTAL_RELEASED + removed)); ok "$(msg journal_done "$(human_bytes "$new_bytes")")"
 }
 
-installed_kernel_packages() {
-    local pkg
+installed_kernel_image_packages() {
+    local pkg status canonical
     while IFS=$'\t' read -r pkg status; do
         [[ "$status" == 'install ok installed' ]] || continue
-        [[ "$pkg" =~ ^linux-image-(unsigned-)?[0-9] ]] || continue
+        canonical="${pkg%%:*}"
+        [[ "$canonical" =~ ^linux-image-(unsigned-)?[0-9] ]] || continue
         printf '%s\n' "$pkg"
     done < <(dpkg-query -W -f='${binary:Package}\t${Status}\n' 'linux-image*' 2>/dev/null || true)
+}
+kernel_release_from_image_package() {
+    local pkg="${1%%:*}"
+    if [[ "$pkg" =~ ^linux-image-(unsigned-)?([0-9].*)$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[2]}"
+    else
+        return 1
+    fi
+}
+installed_versioned_kernel_packages() {
+    local pkg status canonical
+    while IFS=$'\t' read -r pkg status; do
+        [[ "$status" == 'install ok installed' ]] || continue
+        canonical="${pkg%%:*}"
+        [[ "$canonical" =~ ^linux-(image(-unsigned)?|headers|modules|modules-extra)-[0-9] ]] || continue
+        printf '%s\n' "$pkg"
+    done < <(
+        dpkg-query -W -f='${binary:Package}\t${Status}\n' \
+            'linux-image*' 'linux-headers*' 'linux-modules*' 2>/dev/null || true
+    )
 }
 package_size_bytes() {
     local kib
@@ -556,9 +620,37 @@ package_size_bytes() {
     [[ "$kib" =~ ^[0-9]+$ ]] || kib=0
     printf '%s' "$((kib * 1024))"
 }
+sorted_nonrunning_kernel_releases() {
+    local current="$1" release
+    shift
+    for release in "$@"; do
+        [[ "$release" == "$current" ]] || printf '%s\n' "$release"
+    done | sort -Vu
+}
+filter_kernel_packages_for_releases() {
+    local pkg canonical release
+    local -a releases=("$@")
+    while IFS= read -r pkg; do
+        canonical="${pkg%%:*}"
+        for release in "${releases[@]}"; do
+            case "$canonical" in
+                "linux-image-$release"|"linux-image-unsigned-$release"|"linux-headers-$release"|"linux-modules-$release"|"linux-modules-extra-$release")
+                    printf '%s\n' "$pkg"
+                    break
+                    ;;
+            esac
+        done
+    done
+}
+filter_residual_kernel_packages() {
+    awk -F'\t' '$2 == "deinstall ok config-files" && $1 ~ /^linux-(image(-unsigned)?|headers|modules|modules-extra)-[0-9]/ {print $1}'
+}
 clean_residual_configs() {
     local -a residual=()
-    mapfile -t residual < <(dpkg-query -W -f='${binary:Package}\t${Status}\n' 2>/dev/null | awk -F'\t' '$2 == "deinstall ok config-files" {print $1}')
+    mapfile -t residual < <(
+        dpkg-query -W -f='${binary:Package}\t${Status}\n' 2>/dev/null |
+            filter_residual_kernel_packages
+    )
     ((${#residual[@]})) || return 0
     note "$(msg residual_candidates "${#residual[@]}")"
     if ((DRY_RUN)); then add_estimate 0; printf '  + dpkg --purge'; printf ' %q' "${residual[@]}"; printf '\n'; return; fi
@@ -571,15 +663,26 @@ clean_residual_configs() {
     fi
 }
 clean_old_kernels() {
-    local current="$(uname -r)" pkg fallback='' pkg_bytes total_bytes=0
-    local -a installed=() others=() sorted=() candidates=()
+    local current pkg release fallback='' pkg_bytes total_bytes=0
+    local -a installed_images=() installed_releases=() sorted=() candidate_releases=() candidates=()
+    current=$(uname -r)
     section "$(msg kernel_step)"; printf '  %-28s %s\n' "$(msg kernel_current):" "$current"
     if ! command_exists dpkg-query || ! command_exists apt-get; then skip "$(msg kernel_none)"; return; fi
-    mapfile -t installed < <(installed_kernel_packages)
-    for pkg in "${installed[@]}"; do [[ "$pkg" == *"$current"* ]] || others+=("$pkg"); done
-    if ((${#others[@]})); then mapfile -t sorted < <(printf '%s\n' "${others[@]}" | sort -V); fallback="${sorted[-1]}"; fi
-    if ((${#sorted[@]} > 1)); then candidates=("${sorted[@]:0:${#sorted[@]}-1}"); fi
-    printf '  %-28s %d\n' "$(msg kernel_installed):" "${#installed[@]}"
+    mapfile -t installed_images < <(installed_kernel_image_packages)
+    for pkg in "${installed_images[@]}"; do
+        release=$(kernel_release_from_image_package "$pkg") || continue
+        installed_releases+=("$release")
+    done
+    mapfile -t sorted < <(sorted_nonrunning_kernel_releases "$current" "${installed_releases[@]}")
+    if ((${#sorted[@]})); then fallback="${sorted[-1]}"; fi
+    if ((${#sorted[@]} > 1)); then candidate_releases=("${sorted[@]:0:${#sorted[@]}-1}"); fi
+    if ((${#candidate_releases[@]})); then
+        mapfile -t candidates < <(
+            installed_versioned_kernel_packages |
+                filter_kernel_packages_for_releases "${candidate_releases[@]}"
+        )
+    fi
+    printf '  %-28s %d\n' "$(msg kernel_installed):" "${#installed_releases[@]}"
     [[ -n "$fallback" ]] && printf '  %-28s %s\n' "$(msg kernel_fallback):" "$fallback"
     if ((${#candidates[@]} == 0)); then skip "$(msg kernel_none)"; clean_residual_configs; return; fi
     printf '  %s: %d\n' "$(msg kernel_remove)" "${#candidates[@]}"
@@ -593,10 +696,11 @@ clean_old_kernels() {
 run_custom() {
     local choice
     while :; do
-        printf '\n1) %s\n2) %s\n3) %s\n4) %s\n0) %s\n' "$(msg tmp_step)" "$(msg apt_step)" "$(msg cache_step)" "$(msg journal_step) / $(msg kernel_step)" "$(msg mode_exit)"
-        read -r -p "$(msg mode_prompt): " choice || return
+        section "$(msg custom_title)"
+        printf '  1) %s\n  2) %s\n  3) %s\n  4) %s\n  5) %s\n  0) %s\n' "$(msg tmp_step)" "$(msg apt_step)" "$(msg cache_step)" "$(msg journal_step)" "$(msg kernel_step)" "$(msg mode_exit)"
+        read -r -p "$(msg custom_prompt): " choice || return
         case "$choice" in
-            1) clean_tmp ;; 2) clean_apt_cache ;; 3) clean_user_cache ;; 4) clean_journal; clean_old_kernels ;; 0) return ;; *) warn "$(msg mode_prompt)" ;;
+            1) clean_tmp ;; 2) clean_apt_cache ;; 3) clean_user_cache ;; 4) clean_journal ;; 5) clean_old_kernels ;; 0) return ;; *) warn "$(msg custom_prompt)" ;;
         esac
     done
 }
@@ -616,6 +720,7 @@ main() {
     detect_language
     parse_args "$@"
     require_root
+    validate_target_user
     setup_logging
     setup_lock
     show_banner
@@ -631,11 +736,13 @@ main() {
         1|quick) clean_tmp; clean_apt_cache ;;
         2|standard) clean_tmp; clean_apt_cache; clean_user_cache; clean_journal ;;
         3|full) clean_tmp; clean_apt_cache; clean_user_cache; clean_journal; clean_old_kernels ;;
-        4|custom) ((DRY_RUN)) || [[ -t 0 ]] || die "$(msg error_noninteractive)"; run_custom ;;
+        4|custom) [[ -t 0 ]] || die "$(msg error_custom_tty)"; run_custom ;;
         0|exit) return 0 ;;
         *) die "$(msg error_bad_mode "$MODE")" ;;
     esac
     show_summary
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

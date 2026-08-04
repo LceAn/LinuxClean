@@ -1,24 +1,27 @@
 # LinuxClean
 
+[![Shell CI](https://github.com/LceAn/LinuxClean/actions/workflows/ci.yml/badge.svg)](https://github.com/LceAn/LinuxClean/actions/workflows/ci.yml)
+
 LinuxClean is a conservative, scriptable maintenance tool for Debian/Ubuntu-like Linux systems. It reports the machine state, previews eligible files, asks before destructive actions, and supports unattended jobs through explicit command-line options.
 
 ## Highlights
 
 - Quick, standard, full, and custom cleanup modes.
 - `--dry-run` preview with no filesystem or package changes.
-- Size-sorted candidates and reclaim estimates, capped at the 20 largest files by default for readable audits.
+- Size-sorted candidates and reclaim estimates, using a memory-bounded Top-N preview capped at 20 files by default.
 - Age-based cleanup for `/tmp` and user caches (7 days by default), protecting fresh/active files.
 - APT cache cleanup through `apt-get clean`.
 - systemd journal vacuuming with a validated size target.
-- Old-kernel detection that protects both the running kernel and the newest fallback, and only targets versioned `linux-image-*` packages.
+- Release-aware old-kernel detection that protects both the running kernel and the newest fallback, and groups matching image, modules, and headers packages.
 - Handles root plus regular local users, or one selected user with `--user`.
 - English/Chinese output, automatic locale detection, optional log file, lock, color control, and useful exit codes.
+- Independent journal and kernel choices in custom mode, plus stale-lock-safe concurrency control with `flock`.
 
 ## Requirements
 
-- Bash 4+ (Bash 5 recommended)
+- Bash 4.3+ (Bash 5 recommended)
 - Root privileges (`sudo` or a root shell)
-- Optional tools are detected at runtime: `apt-get`, `dpkg-query`, `journalctl`, `getent`, `nproc`, and `free`.
+- Optional tools are detected at runtime: `apt-get`, `dpkg-query`, `journalctl`, `flock`, `nproc`, and `free`.
 
 ## Usage
 
@@ -54,7 +57,7 @@ sudo ./LinuxClean.sh --mode full --journal-size 1G
 | `--user USER` | Limit cache cleanup to one local user |
 | `--language en|zh` | Override locale detection |
 | `--no-color` | Disable ANSI colors |
-| `--log-file FILE` | Tee output to a log file |
+| `--log-file FILE` | Tee plain-text output to a timestamped log file |
 | `-h, --help` / `-V, --version` | Show help/version |
 
 If stdin is not a terminal, `--mode` is required. This prevents a scheduled job from hanging at an interactive prompt.
@@ -77,10 +80,11 @@ Run the local smoke tests:
 
 ```bash
 ./test-i18n.sh
+bash tests/test-unit.sh
 bash -n LinuxClean.sh
 ```
 
-The script was also checked on a Debian 11 host (`5.10.0-32-amd64`) using quick, standard, and full dry-runs. It correctly reported `/tmp`, root caches, APT, journal estimates, and kernel protection without changing the host.
+GitHub Actions runs Bash syntax, ShellCheck, unit, CLI/i18n, and full dry-run checks. The v3.0 baseline was also checked on a Debian 11 host (`5.10.0-32-amd64`) without changing it; see `test-report.md` for the exact v3.1 validation boundary.
 
 ## License
 
@@ -91,12 +95,14 @@ See the repository license and changelog for project history.
 ## 仓库结构
 
 - `.gitattributes`
+- `.github/workflows/ci.yml`
 - `CHANGELOG.md`
 - `LinuxClean.sh`
 - `README.md`
 - `README_zh.md`
 - `test-i18n.sh`
 - `test-report.md`
+- `tests/test-unit.sh`
 
 <!-- repo-readme-standard:v1 -->
 ## 仓库维护信息

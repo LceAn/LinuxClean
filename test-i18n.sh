@@ -25,7 +25,7 @@ contains "$chinese_help" '用法'
 contains "$chinese_help" '模式：quick、standard、full、custom'
 
 version=$(LC_ALL=C LANG=C bash "$SCRIPT" --version)
-contains "$version" 'LinuxClean 3.0'
+contains "$version" 'LinuxClean 3.1'
 
 if LC_ALL=C LANG=C bash "$SCRIPT" --definitely-invalid >/dev/null 2>&1; then
     fail 'invalid options should return a non-zero status'
@@ -35,11 +35,21 @@ if LC_ALL=C LANG=C bash "$SCRIPT" --max-items nope --mode quick --dry-run >/dev/
     fail 'invalid --max-items values should return a non-zero status'
 fi
 
+if LC_ALL=C LANG=C bash "$SCRIPT" --language invalid --mode quick --dry-run >/dev/null 2>&1; then
+    fail 'invalid --language values should return a non-zero status'
+fi
+
 if ((EUID == 0)); then
     preview=$(LC_ALL=C LANG=C bash "$SCRIPT" --mode quick --yes --dry-run --no-color --max-items 1)
     contains "$preview" 'Cleanup plan:'
     contains "$preview" 'Preview completed; no changes were made'
     contains "$preview" 'Estimated reclaimable space:'
+    if LC_ALL=C LANG=C bash "$SCRIPT" --mode standard --dry-run --user __linuxclean_missing_user__ >/dev/null 2>&1; then
+        fail 'unknown --user values should return a non-zero status'
+    fi
+    if LC_ALL=C LANG=C bash "$SCRIPT" --mode custom --dry-run </dev/null >/dev/null 2>&1; then
+        fail 'custom mode should require an interactive terminal'
+    fi
 fi
 
 printf 'PASS: syntax, i18n, options, validation, and root dry-run checks\n'
