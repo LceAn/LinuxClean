@@ -113,3 +113,10 @@ This repository currently has no root `LICENSE` file. Treat the script as an unl
 - 维护节奏：每月只选 1-2 个小更新
 - 相关仓库：无已确认的重复仓库关系；如需合并请先核对功能边界。
 - 维护边界：普通文档和代码更新可直接提交；归档、删除、历史重写或强制推送需单独确认。
+
+---
+
+## Documentation
+
+- [CHANGELOG.md](CHANGELOG.md) — changelog
+- [ROADMAP.md](ROADMAP.md) — future plans

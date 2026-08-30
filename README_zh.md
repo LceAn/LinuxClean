@@ -87,3 +87,10 @@ GitHub Actions 会运行 Bash 语法、ShellCheck、单元、CLI/i18n 和完整 
 ## 许可证
 
 项目历史请参阅仓库中的许可证和更新日志。
+
+---
+
+## 文档
+
+- [CHANGELOG.md](CHANGELOG.md) — 更新日志
+- [ROADMAP.md](ROADMAP.md) — 未来更新计划
