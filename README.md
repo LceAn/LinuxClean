@@ -88,7 +88,7 @@ GitHub Actions runs Bash syntax, ShellCheck, unit, CLI/i18n, and full dry-run ch
 
 ## License
 
-See the repository license and changelog for project history.
+This repository currently has no root `LICENSE` file. Treat the script as an unlicensed personal tool until a license is added; the changelog records project history.
 
 ---
 

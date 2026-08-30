@@ -14,6 +14,13 @@ contains() {
 [[ -r "$SCRIPT" ]] || fail "LinuxClean.sh not found"
 bash -n "$SCRIPT" || fail "LinuxClean.sh has a syntax error"
 
+if ((BASH_VERSINFO[0] < 4)); then
+    output=$(LC_ALL=C LANG=C bash "$SCRIPT" --help 2>&1 || true)
+    contains "$output" 'requires Bash 4'
+    printf 'SKIP: Bash 4+ is required for runtime checks (found Bash %s)\n' "${BASH_VERSINFO[0]}"
+    exit 0
+fi
+
 english_help=$(LC_ALL=C LANG=C bash "$SCRIPT" --help)
 contains "$english_help" 'Usage'
 contains "$english_help" '--dry-run'

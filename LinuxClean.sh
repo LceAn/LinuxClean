@@ -5,6 +5,11 @@
 # Version: 3.1
 ################################################################################
 
+if ((BASH_VERSINFO[0] < 4)); then
+    printf '%s\n' 'LinuxClean requires Bash 4 or newer.' >&2
+    exit 2
+fi
+
 set -Eeuo pipefail
 IFS=$'\n\t'
 
